@@ -30,7 +30,7 @@ type handshakeState int
 // handshake. A depiction of the states and transitions can be found in RFC 793,
 // page 23.
 const (
-	handshakeSynSent handshakeState = iota
+	handshakeSynSent   handshakeState = iota
 	handshakeSynRcvd
 	handshakeCompleted
 )
@@ -54,7 +54,7 @@ type handshake struct {
 	iss seqnum.Value
 
 	// rcvWnd is the receive window, as defined in RFC 793.
-	rcvWnd seqnum.Size
+	rcvWnd seqnum.Size // todo: note that wnd length is 16 bits, but there use uint32.
 
 	// sndWnd is the send window, as defined in RFC 793.
 	sndWnd seqnum.Size
@@ -86,7 +86,7 @@ func newHandshake(ep *endpoint, rcvWnd seqnum.Size) (handshake, *tcpip.Error) {
 
 // FindWndScale determines the window scale to use for the given maximum window
 // size.
-func FindWndScale(wnd seqnum.Size) int {
+func FindWndScale(wnd seqnum.Size) int { // todo: get wndScale and change wnd value
 	if wnd < 0x10000 {
 		return 0
 	}
@@ -109,12 +109,12 @@ func (h *handshake) resetState() *tcpip.Error {
 		panic(err)
 	}
 
-	h.state = handshakeSynSent
+	h.state = handshakeSynSent //todo: strange that this func can be invoke when receiving a SYN !!!why here ?
 	h.flags = flagSyn
 	h.ackNum = 0
 	h.mss = 0
 	h.iss = seqnum.Value(uint32(b[0]) | uint32(b[1])<<8 | uint32(b[2])<<16 | uint32(b[3])<<24)
-
+	// todo: iss => ISN, a random number
 	return nil
 }
 
@@ -327,7 +327,7 @@ func (h *handshake) processSegments() *tcpip.Error {
 func (h *handshake) execute() *tcpip.Error {
 	// Initialize the resend timer.
 	resendWaker := sleep.Waker{}
-	timeOut := time.Duration(time.Second)
+	timeOut := time.Duration(time.Second) // todo: set initial RTO -> 1s
 	rt := time.AfterFunc(timeOut, func() {
 		resendWaker.Assert()
 	})
@@ -343,7 +343,7 @@ func (h *handshake) execute() *tcpip.Error {
 	// Send the initial SYN segment and loop until the handshake is
 	// completed.
 	synOpts := header.TCPSynOptions{
-		WS:    h.rcvWndScale,
+		WS:    h.rcvWndScale, // todo: this is in a syn packet so it's actually self-receive-window
 		TS:    true,
 		TSVal: h.ep.timestamp(),
 		TSEcr: h.ep.recentTS,
@@ -352,14 +352,16 @@ func (h *handshake) execute() *tcpip.Error {
 	// Execute is also called in a listen context so we want to make sure we
 	// only send the TS option when we received the TS in the initial SYN.
 	if h.state == handshakeSynRcvd {
-		synOpts.TS = h.ep.sendTSOk
+		synOpts.TS = h.ep.sendTSOk // todo: question -- we have setted in line 347,why here again?
+		// todo: answer -- this is a passive endpoint,doesn't send syn
 	}
+	// todo: whether it's a positive or passive handshake,just send SYN and ACK
 	sendSynTCP(&h.ep.route, h.ep.id, h.flags, h.iss, h.ackNum, h.rcvWnd, synOpts)
 	for h.state != handshakeCompleted {
 		switch index, _ := s.Fetch(true); index {
 		case wakerForResend:
-			timeOut *= 2
-			if timeOut > 60*time.Second {
+			timeOut *= 2 // todo: exponential avoid
+			if timeOut > 60*time.Second { // todo: max retry time,60s
 				return tcpip.ErrTimeout
 			}
 			rt.Reset(timeOut)
@@ -395,7 +397,7 @@ func sendSynTCP(r *stack.Route, id stack.TransportEndpointID, flags byte, seq, a
 	// places and we don't want every call point being embedded with the MSS
 	// calculation. So we just do it here and ignore the MSS value passed in
 	// the opts.
-	mss := r.MTU() - header.TCPMinimumSize
+	mss := r.MTU() - header.TCPMinimumSize // todo: r.MTU() is just the next router's MTU, so the mss may smaller than this
 	options := []byte{
 		// Initialize the MSS option.
 		header.TCPOptionMSS, 4, byte(mss >> 8), byte(mss),
@@ -423,8 +425,8 @@ func sendTCPWithOptions(r *stack.Route, id stack.TransportEndpointID, data buffe
 	// Allocate a buffer for the TCP header.
 	hdr := buffer.NewPrependable(header.TCPMinimumSize + int(r.MaxHeaderLength()) + optLen)
 
-	if rcvWnd > 0xffff {
-		rcvWnd = 0xffff
+	if rcvWnd > 0xffff { // MY OWN NOTE : 64K
+		rcvWnd = 0xffff // todo: why not use wndScale opt ?
 	}
 
 	// Initialize the header.
@@ -634,6 +636,7 @@ func (e *endpoint) handleSegments() bool {
 // protocolMainLoop is the main loop of the TCP protocol. It runs in its own
 // goroutine and is responsible for sending segments and handling received
 // segments.
+// todo: this func execute within the tcp_conn finite state machine, it's the index of each connection
 func (e *endpoint) protocolMainLoop(passive bool) *tcpip.Error {
 	var closeTimer *time.Timer
 	var closeWaker sleep.Waker

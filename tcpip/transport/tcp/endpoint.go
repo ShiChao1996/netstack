@@ -75,7 +75,7 @@ type endpoint struct {
 	rcvListMu  sync.Mutex
 	rcvList    segmentList
 	rcvClosed  bool
-	rcvBufSize int
+	rcvBufSize int // todo: we have the size,but...where is the buffer itself ???
 	rcvBufUsed int
 
 	// The following fields are protected by the mutex.
@@ -127,7 +127,7 @@ type endpoint struct {
 	// settings because applications expect to be able to set/query these
 	// options.
 	noDelay   bool
-	reuseAddr bool
+	reuseAddr bool //todo : this is to use when the conn state is at TIME_WAIT to reuse the port.
 
 	// segmentQueue is used to hand received segments to the protocol
 	// goroutine. Segments are queued as long as the queue is not full,
@@ -184,7 +184,7 @@ func newEndpoint(stack *stack.Stack, netProto tcpip.NetworkProtocolNumber, waite
 	e.segmentQueue.setLimit(2 * e.rcvBufSize)
 	e.workMu.Init()
 	e.workMu.Lock()
-	e.tsOffset = timeStampOffset()
+	e.tsOffset = timeStampOffset() // todo: random offset to avoid ACK Spoofing attacks,reference to tcp/ip page 558.
 	return e
 }
 
@@ -851,16 +851,16 @@ func (e *endpoint) Listen(backlog int) *tcpip.Error {
 	// that point onward, acceptedChan is the responsibility of the cleanup()
 	// method (and should not be touched anywhere else, including here).
 	if e.state == stateListen && !e.workerCleanup {
-		// Adjust the size of the channel iff we can fix existing
+		// Adjust the size of the channel if we can fix existing
 		// pending connections into the new one.
-		if len(e.acceptedChan) > backlog {
+		if len(e.acceptedChan) > backlog { // todo: backlog overflow
 			return tcpip.ErrInvalidEndpointState
 		}
 		origChan := e.acceptedChan
 		e.acceptedChan = make(chan *endpoint, backlog)
 		close(origChan)
 		for ep := range origChan {
-			e.acceptedChan <- ep
+			e.acceptedChan <- ep  // todo: move to the new backlog queue
 		}
 		return nil
 	}
@@ -1076,7 +1076,7 @@ func (e *endpoint) readyToRead(s *segment) {
 
 // receiveBufferAvailable calculates how many bytes are still available in the
 // receive buffer.
-func (e *endpoint) receiveBufferAvailable() int {
+func (e *endpoint) receiveBufferAvailable() int { // todo:自己的可用接收窗口
 	e.rcvListMu.Lock()
 	size := e.rcvBufSize
 	used := e.rcvBufUsed
