@@ -31,6 +31,7 @@ func (p *Prependable) Prepend(size int) []byte {
 
 	p.usedIdx -= size
 	return p.buf[p.usedIdx:][:size:size]
+	// todo: slice and reslice,remember that it start from the end,for adding lower layer header.
 }
 
 // View returns a View of the backing buffer that contains all prepended

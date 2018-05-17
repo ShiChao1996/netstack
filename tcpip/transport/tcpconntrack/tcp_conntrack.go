@@ -281,7 +281,7 @@ func (s *stream) acceptable(segSeq seqnum.Value, segLen seqnum.Size) bool {
 }
 
 // closed determines if the stream has already been closed. This happens when
-// a FIN has been set by the sender and acknowledged by the receiver.
+// a FIN has been set by the sender and acknowledged by the receiver.、
 func (s *stream) closed() bool {
 	return s.finSeen && s.fin.LessThan(s.una)
 }

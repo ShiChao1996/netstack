@@ -94,7 +94,7 @@ func timeStamp() uint32 {
 // incSynRcvdCount tries to increment the global number of endpoints in SYN-RCVD
 // state. It succeeds if the increment doesn't make the count go beyond the
 // threshold, and fails otherwise.
-func incSynRcvdCount() bool { // todo: decides by if SYN_RCVD queue is full
+func incSynRcvdCount() bool { // note: decides by if SYN_RCVD queue is full
 	synRcvdCount.Lock()
 	defer synRcvdCount.Unlock()
 
@@ -184,25 +184,25 @@ func (l *listenContext) isCookieValid(id stack.TransportEndpointID, cookie seqnu
 
 // createConnectedEndpoint creates a new connected endpoint, with the connection
 // parameters given by the arguments.
-// todo: iss --> initial sender's seq;  irs --> initial receiver's seq.
+// note: iss --> initial sender's seq;  irs --> initial receiver's seq.
 func (l *listenContext) createConnectedEndpoint(s *segment, iss seqnum.Value, irs seqnum.Value, rcvdSynOpts *header.TCPSynOptions) (*endpoint, *tcpip.Error) {
 	// Create a new endpoint.
 	netProto := l.netProto
 	if netProto == 0 {
-		netProto = s.route.NetProto //todo: what is s.route refers to ? peer's or own ?
+		netProto = s.route.NetProto //note: what is s.route refers to ? peer's or own ?
 	}
 	n := newEndpoint(l.stack, netProto, nil)
 	n.v6only = l.v6only
 	n.id = s.id
-	n.boundNICID = s.route.NICID()	// todo: OK,this means that the question at line 192 solved. it's own route.
+	n.boundNICID = s.route.NICID()	// note: OK,this means that the question at line 192 solved. it's own route.
 	n.route = s.route.Clone()
 	n.effectiveNetProtos = []tcpip.NetworkProtocolNumber{s.route.NetProto}
-	n.rcvBufSize = int(l.rcvWnd) //todo: why use l's bufferSize rather than default one ?
+	n.rcvBufSize = int(l.rcvWnd) //note: why use l's bufferSize rather than default one ?
 
 	n.maybeEnableTimestamp(rcvdSynOpts)
 
 	// Register new endpoint so that packets are routed to it.
-	// todo: register for delivering the segments
+	// note: register for delivering the segments
 	if err := n.stack.RegisterTransportEndpoint(n.boundNICID, n.effectiveNetProtos, ProtocolNumber, n.id, n); err != nil {
 		n.Close()
 		return nil, err
@@ -225,7 +225,7 @@ func (l *listenContext) createConnectedEndpoint(s *segment, iss seqnum.Value, ir
 // the TCP 3-way handshake.
 func (l *listenContext) createEndpointAndPerformHandshake(s *segment, opts *header.TCPSynOptions) (*endpoint, *tcpip.Error) {
 	// Create new endpoint.
-	irs := s.sequenceNumber
+	irs := s.sequenceNumber // note: initial remote req
 	cookie := l.createCookie(s.id, irs, encodeMSS(opts.MSS))
 	ep, err := l.createConnectedEndpoint(s, cookie, irs, opts)
 	if err != nil {
@@ -239,7 +239,7 @@ func (l *listenContext) createEndpointAndPerformHandshake(s *segment, opts *head
 		return nil, err
 	}
 
-	h.resetToSynRcvd(cookie, irs, opts) // todo: this explains the question in connect.go line 106 the func resetState.
+	h.resetToSynRcvd(cookie, irs, opts) // note: this explains the question in connect.go line 106 the func resetState.
 	if err := h.execute(); err != nil {
 		ep.Close()
 		return nil, err
@@ -275,7 +275,7 @@ func (e *endpoint) deliverAccepted(n *endpoint) {
 // cookies to accept connections.
 func (e *endpoint) handleSynSegment(ctx *listenContext, s *segment, opts *header.TCPSynOptions) {
 	defer decSynRcvdCount()
-	defer s.decRef() // todo: dec the SYN_RCVD queue to accept new SYN segment
+	defer s.decRef() // note: dec the SYN_RCVD queue to accept new SYN segment
 
 	n, err := ctx.createEndpointAndPerformHandshake(s, opts)
 	if err != nil {
@@ -283,35 +283,40 @@ func (e *endpoint) handleSynSegment(ctx *listenContext, s *segment, opts *header
 	}
 
 	e.deliverAccepted(n)
+	// note: there leaves a big bug. what if the cap of the chan(backlog) is full ? there is no handler to
+	// note: solve this case. Actually we should drop ack segments of the handshake or just send back RST when this happens.
 }
 
 // handleListenSegment is called when a listening endpoint receives a segment
 // and needs to handle it.
 func (e *endpoint) handleListenSegment(ctx *listenContext, s *segment) {
 	switch s.flags {
-	case flagSyn: 		// todo: if it's a syn seg, then prepare establishing a new conn
+	case flagSyn: 		// note: if it's a syn seg, then prepare establishing a new conn
 		opts := parseSynSegmentOptions(s)
-		if incSynRcvdCount() { // todo: there is space for new conn
-			s.incRef() // todo: wtf ?
+		if incSynRcvdCount() { // note: there is space for new conn
+			s.incRef() // note: wtf ?
 			go e.handleSynSegment(ctx, s, &opts)
 		} else {
-			// todo: why send back SYN and ACK when we don't have enough space ???
-			// todo: in Linux it is dropped when the queue is full
+			// note: why send back SYN and ACK when we don't have enough space ???
+			// note: in Linux it is dropped when the queue is full
 
-			// todo: this cookie is use to validate if the client is malicious
+			// note: this cookie is  !!NOT!! use to validate whether the client is malicious
+			// note: the endpoint will not save this segment in the queue, but send the info of the conn back
+			// note: by encode the info into the ISN and send it back, to recover this conn the next time.
+			// note: this is called `tcp_syncookies`,the syn queue is infact never full when use this solution.
 			cookie := ctx.createCookie(s.id, s.sequenceNumber, encodeMSS(opts.MSS))
 			// Send SYN with window scaling because we currently
 			// dont't encode this information in the cookie.
 			//
 			// Enable Timestamp option if the original syn did have
 			// the timestamp option specified.
+			// note: see https://segmentfault.com/a/1190000008224853
 			synOpts := header.TCPSynOptions{
 				WS:    -1,
 				TS:    opts.TS,
 				TSVal: tcpTimeStamp(timeStampOffset()),
 				TSEcr: opts.TSVal,
 			}
-			// todo: send back SYN and ACK
 			sendSynTCP(&s.route, s.id, flagSyn|flagAck, cookie, s.sequenceNumber+1, ctx.rcvWnd, synOpts)
 		}
 
@@ -377,7 +382,7 @@ func (e *endpoint) protocolListenLoop(rcvWnd seqnum.Size) *tcpip.Error {
 		switch index, _ := s.Fetch(true); index {
 		case wakerForNotification:
 			n := e.fetchNotifications()
-			if n&notifyClose != 0 {	// notifyClose is binary: 0000..00100
+			if n&notifyClose != 0 {	// note: notifyClose is binary: 0000..00100
 				return nil
 			}
 
@@ -385,7 +390,7 @@ func (e *endpoint) protocolListenLoop(rcvWnd seqnum.Size) *tcpip.Error {
 			// Process at most maxSegmentsPerWake segments.
 			mayRequeue := true
 			for i := 0; i < maxSegmentsPerWake; i++ {
-				// todo: maybe one waker map to many segments so give a max num
+				// note: maybe one waker map to many segments so give a max num
 				s := e.segmentQueue.dequeue()
 				if s == nil {
 					mayRequeue = false
@@ -393,14 +398,14 @@ func (e *endpoint) protocolListenLoop(rcvWnd seqnum.Size) *tcpip.Error {
 				}
 
 				e.handleListenSegment(ctx, s)
-				s.decRef() // todo: why ? what to dec ?
+				s.decRef() // note: why ? what to dec ?
 			}
 
 			// If the queue is not empty, make sure we'll wake up
 			// in the next iteration.
 			if mayRequeue && !e.segmentQueue.empty() {
 				e.newSegmentWaker.Assert()
-				// todo:in case that there's more than maxSegmentsPerWake segments, so wakes it again
+				// note:in case that there's more than maxSegmentsPerWake segments, so wakes it again
 			}
 		}
 	}

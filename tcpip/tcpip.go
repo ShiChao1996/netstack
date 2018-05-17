@@ -102,7 +102,7 @@ func NewSubnet(a Address, m AddressMask) (Subnet, error) {
 	return Subnet{a, m}, nil
 }
 
-// Contains returns true iff the address is of the same length and matches the
+// Contains returns true if the address is of the same length and matches the
 // subnet address and mask.
 func (s *Subnet) Contains(a Address) bool {
 	if len(a) != len(s.address) {
@@ -196,7 +196,7 @@ type Endpoint interface {
 	// one is specified. This method does not block if the data cannot be
 	// written.
 	//
-	// Note that unlike io.Writer.Write, it is not an error for Write to
+	// TODO: that unlike io.Writer.Write, it is not an error for Write to
 	// perform a partial write.
 	Write(buffer.View, *FullAddress) (uintptr, *Error)
 

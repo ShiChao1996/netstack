@@ -80,7 +80,7 @@ func New(network []string, transport []string) *Stack {
 		}
 		netProto := netProtoFactory()
 		s.networkProtocols[netProto.Number()] = netProto
-		if r, ok := netProto.(LinkAddressResolver); ok {
+		if r, ok := netProto.(LinkAddressResolver); ok { // note: if ok, r is a network protocol and implements ARP.
 			s.linkAddrResolvers[r.LinkAddressProtocol()] = r
 		}
 	}
@@ -141,7 +141,7 @@ func (s *Stack) SetTransportProtocolHandler(p tcpip.TransportProtocolNumber, h f
 
 // Stats returns a snapshot of the current stats.
 //
-// NOTE: The underlying stats are updated using atomic instructions as a result
+// The underlying stats are updated using atomic instructions as a result
 // the snapshot returned does not represent the value of all the stats at any
 // single given point of time.
 // TODO: Make stats available in sentry for debugging/diag.

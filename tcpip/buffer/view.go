@@ -16,7 +16,7 @@ func NewView(size int) View {
 
 // NewViewFromBytes allocates a new buffer and copies in the given bytes.
 func NewViewFromBytes(b []byte) View {
-	return append(View(nil), b...)
+	return append(View(nil), b...) // just copy to a new mem
 }
 
 // TrimFront removes the first "count" bytes from the visible section of the

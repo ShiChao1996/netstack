@@ -120,8 +120,8 @@ type fastRecovery struct {
 func newSender(ep *endpoint, iss, irs seqnum.Value, sndWnd seqnum.Size, mss uint16, sndWndScale int) *sender {
 	s := &sender{
 		ep:               ep,
-		sndCwnd:          initialCwnd,
-		sndSsthresh:      math.MaxInt64,
+		sndCwnd:          initialCwnd, // set initial to slow start
+		sndSsthresh:      math.MaxInt64, // to ensure slow start
 		sndWnd:           sndWnd,
 		sndUna:           iss + 1,
 		sndNxt:           iss + 1,
@@ -145,7 +145,7 @@ func newSender(ep *endpoint, iss, irs seqnum.Value, sndWnd seqnum.Size, mss uint
 		m -= header.TCPTimeStampOptionSize
 	}
 	if m < s.maxPayloadSize {
-		s.maxPayloadSize = m
+		s.maxPayloadSize = m //note: compute correct mss
 	}
 
 	s.resendTimer.init(&s.resendWaker)
@@ -187,7 +187,7 @@ func (s *sender) resendSegment() {
 	s.rttMeasureSeqNum = s.sndNxt
 
 	// Resend the segment.
-	if seg := s.writeList.Front(); seg != nil {
+	if seg := s.writeList.Front(); seg != nil { //note: the first of the list is the first unacknowledged segment.
 		s.sendSegment(&seg.data, seg.flags, seg.sequenceNumber)
 	}
 }
@@ -257,6 +257,7 @@ func (s *sender) sendData() {
 	// transmission if the TCP has not sent data in the interval exceeding
 	// the retrasmission timeout."
 	if !s.fr.active && time.Now().Sub(s.lastSendTime) > s.rto {
+		// note: this is congestion window validation, but the action is not efficient enough
 		if s.sndCwnd > initialCwnd {
 			s.sndCwnd = initialCwnd
 		}
@@ -272,7 +273,7 @@ func (s *sender) sendData() {
 		// assigned a sequence number to this segment.
 		if seg.flags == 0 {
 			seg.sequenceNumber = s.sndNxt
-			seg.flags = flagAck | flagPsh
+			seg.flags = flagAck | flagPsh //note: actually I don't think it's good to push every time
 		}
 
 		var segEnd seqnum.Value
@@ -280,9 +281,8 @@ func (s *sender) sendData() {
 			// We're sending a FIN.
 			seg.flags = flagAck | flagFin
 			segEnd = seg.sequenceNumber.Add(1)
-		} else {
-			// We're sending a non-FIN segment.
-			if !seg.sequenceNumber.LessThan(end) {
+		} else { // We're sending a non-FIN segment.
+			if !seg.sequenceNumber.LessThan(end) { // note: this means that we should only send data which is within the window
 				break
 			}
 
@@ -314,9 +314,9 @@ func (s *sender) sendData() {
 	}
 
 	// Remember the next segment we'll write.
-	s.writeNext = seg
+	s.writeNext = seg //note: wtf ?
 
-	// Enable the timer if we have pending data and it's not enabled yet.
+	// Enable the timer if (we have pending data and it's not enabled yet).
 	if !s.resendTimer.enabled() && s.sndUna != s.sndNxt {
 		s.resendTimer.enable(s.rto)
 	}
@@ -325,7 +325,7 @@ func (s *sender) sendData() {
 func (s *sender) enterFastRecovery() {
 	// Save state to reflect we're now in fast recovery.
 	s.reduceSlowStartThreshold()
-	s.sndCwnd = s.sndSsthresh
+	s.sndCwnd = s.sndSsthresh // note: we should add 3 here.
 	s.fr.first = s.sndUna
 	s.fr.last = s.sndNxt - 1
 	s.fr.maxCwnd = s.sndCwnd + s.outstanding
@@ -342,7 +342,7 @@ func (s *sender) leaveFastRecovery() {
 // checkDuplicateAck is called when an ack is received. It manages the state
 // related to duplicate acks and determines if a retransmit is needed according
 // to the rules in RFC 6582 (NewReno).
-func (s *sender) checkDuplicateAck(seg *segment) bool {
+func (s *sender) checkDuplicateAck(seg *segment) bool { // note: return true if need retransmit
 	ack := seg.ackNumber
 	if s.fr.active {
 		// We are in fast recovery mode. Ignore the ack if it's out of
@@ -353,7 +353,7 @@ func (s *sender) checkDuplicateAck(seg *segment) bool {
 
 		// Leave fast recovery if it acknowleges all the data covered by
 		// this fast recovery session.
-		if s.fr.last.LessThan(ack) {
+		if s.fr.last.LessThan(ack) { // note: receive a good ack
 			s.leaveFastRecovery()
 			return false
 		}
@@ -408,7 +408,7 @@ func (s *sender) checkDuplicateAck(seg *segment) bool {
 // updateCwnd updates the congestion window based on the number of packets that
 // were acknowledged.
 func (s *sender) updateCwnd(packetsAcked int) {
-	if s.sndCwnd < s.sndSsthresh {
+	if s.sndCwnd < s.sndSsthresh { // note: slow start, exponentially increase the cwnd
 		// Don't let the congestion window cross into the congestion
 		// avoidance range.
 		newcwnd := s.sndCwnd + packetsAcked
@@ -428,21 +428,22 @@ func (s *sender) updateCwnd(packetsAcked int) {
 	// Consume the packets in congestion avoidance mode.
 	s.sndCAAckCount += packetsAcked
 	if s.sndCAAckCount >= s.sndCwnd {
-		s.sndCwnd += s.sndCAAckCount / s.sndCwnd
+		s.sndCwnd += s.sndCAAckCount / s.sndCwnd	// note: congestion avoid
 		s.sndCAAckCount = s.sndCAAckCount % s.sndCwnd
 	}
 }
 
 // handleRcvdSegment is called when a segment is received; it is responsible for
 // updating the send-related state.
+// note: a sender should reveive its ack segs and update its send states.
 func (s *sender) handleRcvdSegment(seg *segment) {
 	// Check if we can extract an RTT measurement from this ack.
-	if s.rttMeasureSeqNum.LessThan(seg.ackNumber) {
+	if s.rttMeasureSeqNum.LessThan(seg.ackNumber) { // note: if true, means that this is not a dup ack and there is no retransmission, this segment can be use to compute RTO
 		s.updateRTO(time.Now().Sub(s.rttMeasureTime))
 		s.rttMeasureSeqNum = s.sndNxt
 	}
 
-	// Update Timestamp if required. See RFC7323, section-4.3.
+	// Update Timestamp if required. See RFC7323, section-4.3. //note: to avoid 'loopback' ack, tcp/ip page 443
 	s.ep.updateRecentTimestamp(seg.parsedOptions.TSVal, s.maxSentAck, seg.sequenceNumber)
 
 	// Count the duplicates and do the fast retransmit if needed.
@@ -502,8 +503,8 @@ func (s *sender) handleRcvdSegment(seg *segment) {
 
 	// Now that we've popped all acknowledged data from the retransmit
 	// queue, retransmit if needed.
-	if rtx {
-		s.resendSegment()
+	if rtx { 
+		s.resendSegment() // note: resend here because we should use newest send state.
 	}
 
 	// Send more data now that some of the pending data has been ack'd, or
@@ -518,7 +519,7 @@ func (s *sender) handleRcvdSegment(seg *segment) {
 func (s *sender) sendSegment(data *buffer.VectorisedView, flags byte, seq seqnum.Value) *tcpip.Error {
 	s.lastSendTime = time.Now()
 	if seq == s.rttMeasureSeqNum {
-		s.rttMeasureTime = s.lastSendTime
+		s.rttMeasureTime = s.lastSendTime // note: use TSV to avoid invalid sttMeasure
 	}
 
 	rcvNxt, rcvWnd := s.ep.rcv.getSendParams()

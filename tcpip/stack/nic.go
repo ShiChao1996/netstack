@@ -220,7 +220,7 @@ func (n *NIC) DeliverNetworkPacket(linkEP LinkEndpoint, remoteLinkAddr tcpip.Lin
 	}
 
 	src, dst := netProto.ParseAddresses(vv.First())
-	id := NetworkEndpointID{dst}
+	id := NetworkEndpointID{dst} // note: we receive the data, so the dst is our local addr
 
 	n.mu.RLock()
 	ref := n.endpoints[id]

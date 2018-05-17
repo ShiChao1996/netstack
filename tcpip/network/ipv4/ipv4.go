@@ -127,7 +127,7 @@ func (e *endpoint) HandlePacket(r *stack.Route, vv *buffer.VectorisedView) {
 	vv.TrimFront(hlen)
 	vv.CapLength(tlen - hlen)
 
-	more := (h.Flags() & header.IPv4FlagMoreFragments) != 0
+	more := (h.Flags() & header.IPv4FlagMoreFragments) != 0 // note: ip 分片
 	if more || h.FragmentOffset() != 0 {
 		// The packet is a fragment, let's try to reassemble it.
 		last := h.FragmentOffset() + uint16(vv.Size()) - 1

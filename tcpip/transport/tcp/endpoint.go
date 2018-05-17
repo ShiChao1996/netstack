@@ -75,7 +75,7 @@ type endpoint struct {
 	rcvListMu  sync.Mutex
 	rcvList    segmentList
 	rcvClosed  bool
-	rcvBufSize int // todo: we have the size,but...where is the buffer itself ???
+	rcvBufSize int // note: we have the size,but...where is the buffer itself ???
 	rcvBufUsed int
 
 	// The following fields are protected by the mutex.
@@ -184,7 +184,7 @@ func newEndpoint(stack *stack.Stack, netProto tcpip.NetworkProtocolNumber, waite
 	e.segmentQueue.setLimit(2 * e.rcvBufSize)
 	e.workMu.Init()
 	e.workMu.Lock()
-	e.tsOffset = timeStampOffset() // todo: random offset to avoid ACK Spoofing attacks,reference to tcp/ip page 558.
+	e.tsOffset = timeStampOffset() // note: random offset to avoid ACK Spoofing attacks,reference to tcp/ip page 558.
 	return e
 }
 
@@ -853,14 +853,14 @@ func (e *endpoint) Listen(backlog int) *tcpip.Error {
 	if e.state == stateListen && !e.workerCleanup {
 		// Adjust the size of the channel if we can fix existing
 		// pending connections into the new one.
-		if len(e.acceptedChan) > backlog { // todo: backlog overflow
+		if len(e.acceptedChan) > backlog { // note: backlog overflow
 			return tcpip.ErrInvalidEndpointState
 		}
 		origChan := e.acceptedChan
 		e.acceptedChan = make(chan *endpoint, backlog)
 		close(origChan)
 		for ep := range origChan {
-			e.acceptedChan <- ep  // todo: move to the new backlog queue
+			e.acceptedChan <- ep  // note: move to the new backlog queue
 		}
 		return nil
 	}
@@ -1076,7 +1076,7 @@ func (e *endpoint) readyToRead(s *segment) {
 
 // receiveBufferAvailable calculates how many bytes are still available in the
 // receive buffer.
-func (e *endpoint) receiveBufferAvailable() int { // todo:自己的可用接收窗口
+func (e *endpoint) receiveBufferAvailable() int { // note:自己的可用接收窗口
 	e.rcvListMu.Lock()
 	size := e.rcvBufSize
 	used := e.rcvBufUsed

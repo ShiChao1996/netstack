@@ -20,7 +20,7 @@ type linkAddrCache struct {
 	ageLimit time.Duration
 
 	mu      sync.RWMutex
-	cache   map[tcpip.FullAddress]*linkAddrEntry
+	cache   map[tcpip.FullAddress]*linkAddrEntry // note: there use pointer because we have a arrary to actually store things.
 	next    int // array index of next available entry
 	entries [linkAddrCacheSize]linkAddrEntry
 }
@@ -32,7 +32,7 @@ type linkAddrEntry struct {
 	expiration time.Time
 }
 
-func (c *linkAddrCache) valid(e *linkAddrEntry) bool {
+func (c *linkAddrCache) valid(e *linkAddrEntry) bool { // note: maybe this func should be put on to linkAddrEntry.
 	return time.Now().Before(e.expiration)
 }
 

@@ -141,7 +141,7 @@ func (e *endpoint) dispatch(d stack.NetworkDispatcher, largeV buffer.View) (bool
 		p = header.IPv4ProtocolNumber
 	case header.IPv6Version:
 		p = header.IPv6ProtocolNumber
-	default:
+	default: // note: wtf?
 		return true, nil
 	}
 

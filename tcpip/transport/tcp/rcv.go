@@ -49,7 +49,7 @@ func newReceiver(ep *endpoint, irs seqnum.Value, rcvWnd seqnum.Size, rcvWndScale
 func (r *receiver) acceptable(segSeq seqnum.Value, segLen seqnum.Size) bool {
 	rcvWnd := r.rcvNxt.Size(r.rcvAcc)
 	if rcvWnd == 0 {
-		return segLen == 0 && segSeq == r.rcvNxt
+		return segLen == 0 && segSeq == r.rcvNxt // todo: means it's a RST
 	}
 
 	return segSeq.InWindow(r.rcvNxt, rcvWnd) ||
@@ -89,6 +89,7 @@ func (r *receiver) nonZeroWindow() {
 //
 // Returns true if the segment was consumed, false if it cannot be consumed
 // yet because of a missing segment.
+// todo: this is to handle the disOrdered segs
 func (r *receiver) consumeSegment(s *segment, segSeq seqnum.Value, segLen seqnum.Size) bool {
 	if segLen > 0 {
 		// If the segment doesn't include the seqnum we're expecting to
@@ -111,12 +112,15 @@ func (r *receiver) consumeSegment(s *segment, segSeq seqnum.Value, segLen seqnum
 		r.ep.readyToRead(s)
 
 	} else if segSeq != r.rcvNxt {
+		// todo: I really don't know why.
+		// todo: there's possiblility that the segment is a probe seg to keepalive,in which case the seq should equals to r.rcvNxt-1 because it should't have influence with the data transport.
 		return false
 	}
 
+	// todo: it may be a normal segment or a probe for zero window which carries no data
 	// Update the segment that we're expecting to consume.
 	r.rcvNxt = segSeq.Add(segLen)
-	if s.flagIsSet(flagFin) {
+	if s.flagIsSet(flagFin) { // todo: note that there is a FIN should send
 		r.rcvNxt++
 
 		// Send ACK immediately.
@@ -158,7 +162,7 @@ func (r *receiver) handleRcvdSegment(s *segment) {
 	// If the sequence number range is outside the acceptable range, just
 	// send an ACK. This is according to RFC 793, page 37.
 	if !r.acceptable(segSeq, segLen) {
-		r.ep.snd.sendAck()
+		r.ep.snd.sendAck() // todo: what is the ack num ?
 		return
 	}
 
@@ -175,7 +179,7 @@ func (r *receiver) handleRcvdSegment(s *segment) {
 
 			// Immediately send an ack so that the peer knows it may
 			// have to retransmit.
-			r.ep.snd.sendAck()
+			r.ep.snd.sendAck() // todo: this is a dup ACK
 		}
 		return
 	}
@@ -189,7 +193,7 @@ func (r *receiver) handleRcvdSegment(s *segment) {
 		segSeq := s.sequenceNumber
 
 		// Skip segment altogether if it has already been acknowledged.
-		if !segSeq.Add(segLen-1).LessThan(r.rcvNxt) &&
+		if !segSeq.Add(segLen - 1).LessThan(r.rcvNxt) &&
 			!r.consumeSegment(s, segSeq, segLen) {
 			break
 		}

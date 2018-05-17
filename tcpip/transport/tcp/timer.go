@@ -59,7 +59,7 @@ type timer struct {
 	timer *time.Timer
 }
 
-// init initializes the timer. Once it expires, it the given waker will be
+// init initializes the timer. Once it expires, the given waker will be
 // asserted.
 func (t *timer) init(w *sleep.Waker) {
 	t.state = timerStateDisabled
